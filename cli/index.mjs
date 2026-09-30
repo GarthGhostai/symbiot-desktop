@@ -103,6 +103,53 @@ function addTask(text, repo) {
 }
 function toggleTask(id) { const t = loadTasks(); const it = t.find((x) => x.id === id); if (it) { it.done = !it.done; saveTasks(t); } return it || { error: "not found" }; }
 function removeTask(id) { saveTasks(loadTasks().filter((x) => x.id !== id)); return { ok: true }; }
+// Push tasks into the repos as an agent-readable brief (.symbiot/TASKS.md):
+// a checklist plus the deterministic context an agent needs to get oriented.
+function buildTasksMd(name, ctx, list) {
+  const L = [];
+  L.push(`# Symbiot tasks — ${name}`);
+  L.push(`_generated ${new Date().toISOString().slice(0, 10)}${ctx.branch ? ` · branch ${ctx.branch}` : ""} · by symbiot ${VERSION}_`, "");
+  L.push("## Context for an AI agent", `Tasks for the \`${name}\` repo. Get oriented from the signals below before actioning them.`);
+  if (ctx.stack) L.push(`- **Stack:** ${ctx.stack}`);
+  if (ctx.commits && ctx.commits.length) { L.push("- **Recent commits:**"); for (const c of ctx.commits) L.push(`  - ${c}`); }
+  if (ctx.open && ctx.open.length) { L.push("- **Open markers (TODO/FIXME + uncommitted):**"); for (const o of ctx.open) L.push(`  - ${o}`); }
+  if (ctx.drift && ctx.drift.length) { L.push("- **Current drift / risk:**"); for (const d of ctx.drift) L.push(`  - ${d}`); }
+  L.push("", "## Tasks");
+  for (const t of list) L.push(`- [ ] ${t.text}`);
+  L.push("", "---", 'To action these, tell your coding agent: "Read `.symbiot/TASKS.md` and implement the unchecked items in this repo, using the context above. Confirm with me before anything destructive."');
+  return L.join("\n") + "\n";
+}
+function pushTasks() {
+  const tasks = loadTasks().filter((t) => !t.done);
+  if (!tasks.length) return { empty: true, written: [], unresolved: [] };
+  const byName = {}; for (const r of findAllRepos(BASE)) if (!byName[r.name]) byName[r.name] = r.path;
+  const groups = {}; for (const t of tasks) { const k = t.repo || ""; (groups[k] = groups[k] || []).push(t); }
+  const written = [], unresolved = [];
+  for (const name of Object.keys(groups)) {
+    const list = groups[name], path = name && byName[name];
+    if (!path) { unresolved.push({ name: name || "(no repo)", count: list.length }); continue; }
+    try {
+      const st = repoState(path);
+      const commits = sh(`git -C ${JSON.stringify(path)} log --format='%s' -10 2>/dev/null`).split("\n").filter(Boolean);
+      const drift = driftRepo(path, {}).flags.map((f) => (f.level === "warn" ? "⚠ " : "") + f.text);
+      const open = openWork([{ path, name }]).slice(0, 12);
+      const det = detectRepo({ path, name, recency: 0 });
+      const stack = [...det.langs.slice(0, 4), ...det.tools].join(", ");
+      const dir = join(path, ".symbiot"); mkdirSync(dir, { recursive: true });
+      const file = join(dir, "TASKS.md");
+      writeFileSync(file, buildTasksMd(name, { branch: st.branch, commits, open, drift, stack }, list));
+      written.push({ name, file, count: list.length });
+    } catch (e) { unresolved.push({ name, count: list.length, error: String((e && e.message) || e) }); }
+  }
+  return { empty: false, written, unresolved };
+}
+function cmdPush() {
+  const r = pushTasks();
+  if (r.empty) { console.log(c.y("No open tasks to push.") + c.d("  Add some in `symbiot app` — a repo review's ideas, or the Tasks tab.")); return; }
+  if (r.written.length) { console.log("\n" + c.g("●") + " " + c.b("Pushed tasks into repos:")); for (const w of r.written) console.log(`  ${c.g("✓")} ${w.name}  ${c.d(w.file + "  (" + w.count + " task" + (w.count > 1 ? "s" : "") + ")")}`); }
+  if (r.unresolved.length) { console.log("\n" + c.y(`Not written (repo not found under ${BASE}):`)); for (const u of r.unresolved) console.log(`  · ${u.name} (${u.count})`); }
+  console.log("\n" + c.d("Open each repo in your IDE/agent and point it at .symbiot/TASKS.md."));
+}
 function envKey(provider) {
   for (const e of (PROVIDERS[provider].env || [])) if (process.env[e]) return process.env[e];
   return null;
@@ -1021,7 +1068,8 @@ footer{padding:10px 18px;border-top:1px solid var(--line);display:flex}
 <div class="rfoot" id="outfoot" style="display:none"></div>
 </section>
 <section id="panel-tasks" class="hidden">
-<div class="row"><input id="newtask" placeholder="Add a task..." style="flex:1"><button class="act" id="addtask">Add</button></div>
+<div class="row"><input id="newtask" placeholder="Add a task..." style="flex:1"><button class="act" id="addtask">Add</button><button class="ghost" id="pushtasks" title="Write .symbiot/TASKS.md into each repo for your coding agent">Send to repos</button></div>
+<div id="pushout"></div>
 <div id="tasklist"></div>
 </section>
 <section id="panel-drift" class="hidden">
@@ -1154,6 +1202,13 @@ if(clean.length)h+="<div class='muted' style='margin-top:10px'>clean: "+esc(clea
 if(!repos.length)h+="<div class='muted'>No repos found under your home folder.</div>";
 out.innerHTML=h;});}
 function addTaskUI(){var i=document.getElementById('newtask');var v=(i.value||'').trim();if(!v)return;api('/api/tasks/add',{text:v,repo:''}).then(function(){i.value='';loadTasks();});}
+function pushTasksUI(){var o=document.getElementById('pushout');o.innerHTML="<div class='muted' style='margin-top:10px'>Writing .symbiot/TASKS.md into your repos&hellip;</div>";
+api('/api/tasks/push').then(function(r){if(r.empty){o.innerHTML="<div class='muted' style='margin-top:10px'>No open tasks to send. Tick ideas in a repo review, or add tasks above.</div>";return;}
+var h="<div class='drift' style='margin-top:10px'>";
+if(r.written&&r.written.length){h+="<div class='dn'>Sent to "+r.written.length+" repo(s):</div><ul>";r.written.forEach(function(w){h+="<li class='info'>&middot; <b>"+esc(w.name)+"</b> &rarr; "+esc(w.file)+" <span class='ev'>("+w.count+")</span></li>";});h+="</ul>";}
+if(r.unresolved&&r.unresolved.length){h+="<div class='dd' style='margin-top:6px'>Not written (repo not found): "+esc(r.unresolved.map(function(u){return u.name;}).join(", "))+"</div>";}
+h+="<div class='dd' style='margin-top:8px'>Point your agent at <b>.symbiot/TASKS.md</b> in each repo.</div></div>";
+o.innerHTML=h;});}
 function selectNode(id){sel=id;render();updateBar(id);var n=nodeById(id);api('/api/node?id='+encodeURIComponent(id)).then(showDetail);
 if(n&&n.type==='repo'&&n.meta&&n.meta.path){loadReview(n.label,n.meta.path);}else{hideReview();}}
 function screenToGraph(el,ev){var rc=el.getBoundingClientRect();var mx=(ev.clientX-rc.left)/rc.width*GW;var my=(ev.clientY-rc.top)/rc.height*GH;return {x:(mx-view.x)/view.k,y:(my-view.y)/view.k};}
@@ -1184,6 +1239,7 @@ document.getElementById('remap').addEventListener('click',loadMap);
 document.getElementById('recbtn').addEventListener('click',loadRec);
 document.getElementById('driftrun').addEventListener('click',function(){driftLoaded=false;loadDrift();});
 document.getElementById('addtask').addEventListener('click',addTaskUI);
+document.getElementById('pushtasks').addEventListener('click',pushTasksUI);
 document.getElementById('newtask').addEventListener('keydown',function(e){if(e.key==='Enter')addTaskUI();});
 initGraphEvents();syncP();refresh();loadMap();
 </script></body></html>`;
@@ -1248,6 +1304,7 @@ async function cmdApp() {
       if (u.pathname === "/api/tasks/add" && req.method === "POST") { const b = await readBody(req); return json(res, addTask(b.text, b.repo)); }
       if (u.pathname === "/api/tasks/toggle" && req.method === "POST") { const b = await readBody(req); return json(res, toggleTask(String(b.id || ""))); }
       if (u.pathname === "/api/tasks/remove" && req.method === "POST") { const b = await readBody(req); return json(res, removeTask(String(b.id || ""))); }
+      if (u.pathname === "/api/tasks/push" && req.method === "POST") return json(res, pushTasks());
       if (u.pathname === "/api/run" && req.method === "POST") { const b = await readBody(req); const cmd = ["week", "standup", "todo"].includes(b.cmd) ? b.cmd : "week"; return json(res, await produce(cmd)); }
       if (u.pathname === "/api/connect" && req.method === "POST") { return json(res, await connectProvider(await readBody(req))); }
       if (u.pathname === "/api/quit") { res.writeHead(200); res.end("bye"); setTimeout(() => process.exit(0), 150); return; }
@@ -1271,6 +1328,7 @@ ${c.b("Usage")}
   symbiot todo                      what's still on your plate
   symbiot app                       open the visual app in your browser
   symbiot drift                     what's out of sync / at risk across repos
+  symbiot push                      write your tasks into each repo for your agent
   symbiot models                    recommend AI models for your hardware
   symbiot login                     connect it to an AI (once)
   symbiot whoami                    show how it's connected
@@ -1302,6 +1360,7 @@ async function main() {
   if (cmd === "app" || cmd === "ui") return cmdApp();
   if (cmd === "models" || cmd === "hardware") return cmdModels();
   if (cmd === "drift") return cmdDrift();
+  if (cmd === "push") return cmdPush();
   if (cmd === "week") return cmdRun("week");
   if (cmd === "standup") return cmdRun("standup");
   if (cmd === "todo") return cmdRun("todo");
@@ -1317,4 +1376,4 @@ const isMain = (() => {
 })();
 if (isMain) main();
 
-export { authorship, repoState, readmeInfo, repoShape, houseRules, findAllRepos, buildMap, reportFooter, detectHardware, recommendModels, computeDrift, driftRepo, gitDefaultBranch, EMBEDDED_UI };
+export { authorship, repoState, readmeInfo, repoShape, houseRules, findAllRepos, buildMap, reportFooter, detectHardware, recommendModels, computeDrift, driftRepo, gitDefaultBranch, buildTasksMd, EMBEDDED_UI };
