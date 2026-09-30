@@ -1,0 +1,30 @@
+{
+  "name": "symbiot-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Symbiot in your tray — writes your week from your local git and pings you weekly.",
+  "main": "main.js",
+  "author": "Garth White <garth@ghost-ai.co.za>",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "za.co.ghostai.symbiot",
+    "productName": "Symbiot",
+    "asar": false,
+    "files": ["main.js", "preload.js", "ui/**", "assets/**", "cli/**", "node_modules/**"],
+    "linux": { "target": ["AppImage", "deb"], "category": "Utility", "icon": "assets/icon.png" },
+    "mac": { "target": ["dmg"], "icon": "assets/icon.png" },
+    "win": { "target": ["nsis"], "icon": "assets/icon.png" }
+  }
+}
