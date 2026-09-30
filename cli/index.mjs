@@ -1114,18 +1114,19 @@ el.innerHTML="<h3>"+esc(d.label)+"</h3><div class='chips'>"+chips+"</div><button
 document.getElementById('suggest').addEventListener('click',function(){var o=document.getElementById('sugout');o.innerHTML="<div class='out2'>Thinking...</div>";api('/api/suggest',{path:d.path}).then(function(r){if(r.error==='not-connected'){o.innerHTML="<div class='out2'>Connect a model in Settings to get suggestions - Ollama is free and runs locally.</div>";return;}o.innerHTML="<div class='out2'>"+esc(r.text||'(no output)')+"</div>"+(r.footer?"<div class='rfoot'>"+esc(r.footer)+"</div>":"");});});return;}
 if(d.type==='lang'||d.type==='tool'){var lis=(d.repos||[]).map(function(r){return "<li>"+esc(r)+"</li>";}).join("");el.innerHTML="<h3>"+esc(d.label)+"</h3><div class='k'>Used in "+((d.repos||[]).length)+" repos</div><ul>"+lis+"</ul>";return;}
 if(d.type==='person'){var st=d.stats||{};el.innerHTML="<h3>"+esc(d.label)+"</h3><div class='k'>"+st.repos+" repos &middot; "+st.commits+" commits &middot; "+st.languages+" languages &middot; "+st.tools+" tools</div>";return;}}
-var reviewCache={};
+var reviewCache={};var IDEAS=[];var IREPO="";
 function hideReview(){var el=document.getElementById('review');el.classList.add('hidden');el.innerHTML='';}
-function reviewHtml(name,body,ideas,tasks,footer){
+function reviewHtml(name,body,ideas,tasks,footer){IDEAS=ideas||[];IREPO=name;
 var h="<h4>AI review &middot; <span class='rname'>"+esc(name)+"</span></h4><div class='body'>"+esc(body)+"</div>";
 if(ideas&&ideas.length){h+="<div class='ideas'><h4>Upgrade ideas &middot; tick to add to Tasks</h4>";
-ideas.forEach(function(idea){var t=(tasks||[]).filter(function(x){return x.text===idea&&x.repo===name;})[0];var tid=t?t.id:"";
-h+="<label class='idea'><input type='checkbox' class='ideachk' data-text=\""+esc(idea)+"\" data-repo=\""+esc(name)+"\" data-tid='"+tid+"'"+(t?" checked":"")+"><span>"+esc(idea)+"</span></label>";});
+ideas.forEach(function(idea,i){var t=(tasks||[]).filter(function(x){return x.text===idea&&x.repo===name;})[0];var tid=t?t.id:"";
+h+="<label class='idea'><input type='checkbox' class='ideachk' data-idx='"+i+"' data-tid='"+esc(tid)+"'"+(t?" checked":"")+"><span>"+esc(idea)+"</span></label>";});
 h+="</div>";}
 if(footer)h+="<div class='rfoot'>"+esc(footer)+"</div>";
 return h;}
 function wireIdeas(){document.querySelectorAll('.ideachk').forEach(function(cb){cb.addEventListener('change',function(){
-if(cb.checked){api('/api/tasks/add',{text:cb.getAttribute('data-text'),repo:cb.getAttribute('data-repo')}).then(function(it){if(it&&it.id)cb.setAttribute('data-tid',it.id);});}
+var idea=IDEAS[+cb.getAttribute('data-idx')];if(idea==null)return;
+if(cb.checked){api('/api/tasks/add',{text:idea,repo:IREPO}).then(function(it){if(it&&it.id)cb.setAttribute('data-tid',it.id);});}
 else{var id=cb.getAttribute('data-tid');if(id){api('/api/tasks/remove',{id:id}).then(function(){cb.setAttribute('data-tid','');});}}});});}
 function loadReview(name,path){var el=document.getElementById('review');el.classList.remove('hidden');
 if(reviewCache[path]){var c=reviewCache[path];api('/api/tasks').then(function(tasks){el.innerHTML=reviewHtml(name,c.text,c.ideas,tasks,c.footer);wireIdeas();});return;}
@@ -1316,4 +1317,4 @@ const isMain = (() => {
 })();
 if (isMain) main();
 
-export { authorship, repoState, readmeInfo, repoShape, houseRules, findAllRepos, buildMap, reportFooter, detectHardware, recommendModels, computeDrift, driftRepo, gitDefaultBranch };
+export { authorship, repoState, readmeInfo, repoShape, houseRules, findAllRepos, buildMap, reportFooter, detectHardware, recommendModels, computeDrift, driftRepo, gitDefaultBranch, EMBEDDED_UI };
