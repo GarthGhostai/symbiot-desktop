@@ -22,9 +22,33 @@
     "appId": "za.co.ghostai.symbiot",
     "productName": "Symbiot",
     "asar": false,
-    "files": ["main.js", "preload.js", "ui/**", "assets/**", "cli/**", "node_modules/**"],
-    "linux": { "target": ["AppImage", "deb"], "category": "Utility", "icon": "assets/icon.png" },
-    "mac": { "target": ["dmg"], "icon": "assets/icon.png" },
-    "win": { "target": ["nsis"], "icon": "assets/icon.png" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "ui/**",
+      "assets/**",
+      "cli/**",
+      "node_modules/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    }
   }
 }
